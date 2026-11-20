@@ -1,0 +1,13 @@
+appname               = lan-automation
+version               = 0.2.2
+display_name          = 离网自动化
+desc                  = 按时段检测局域网设备状态变化并执行自动化
+platform              = all
+source                = thirdparty
+maintainer            = Local
+distributor           = Local
+desktop_uidir         = ui
+desktop_applaunchname = lan-automation.main
+install_dep_apps      = nodejs_v22
+os_min_version        = 1.1.3100
+ctl_stop              = true

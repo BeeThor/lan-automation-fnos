@@ -1,0 +1,64 @@
+#!/bin/bash
+set -u
+
+APP_DIR="${TRIM_APPDEST:?}/server"
+RUN_DIR="${TRIM_PKGVAR:?}"
+SOCKET_PATH="$TRIM_APPDEST/reminder.sock"
+PID_FILE="$RUN_DIR/server.pid"
+NODE=/var/apps/nodejs_v22/target/bin/node
+
+mkdir -p "$RUN_DIR" || exit 1
+exec 9>"$RUN_DIR/lifecycle.lock"
+flock -x 9 || exit 1
+
+process_running() {
+    [ -r "$PID_FILE" ] || return 1
+    IFS= read -r pid < "$PID_FILE" || return 1
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ -r "/proc/$pid/cmdline" ] &&
+        tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$APP_DIR/index.mjs"
+}
+
+case "${1:-}" in
+    start)
+        if process_running && [ -S "$SOCKET_PATH" ]; then exit 0; fi
+        if process_running; then exit 1; fi
+        if [ ! -x "$NODE" ]; then
+            printf '%s\n' 'Node.js 22 runtime is missing.' > "${TRIM_TEMP_LOGFILE:-$RUN_DIR/service.log}"
+            exit 1
+        fi
+        rm -f -- "$SOCKET_PATH" "$PID_FILE"
+        REMINDER_DATA_DIR="$RUN_DIR/data" REMINDER_SOCKET="$SOCKET_PATH" \
+            "$NODE" "$APP_DIR/index.mjs" </dev/null >>"$RUN_DIR/service.log" 2>&1 9>&- &
+        child=$!
+        printf '%s\n' "$child" > "$PID_FILE"
+        for ((attempt=0; attempt<100; attempt++)); do
+            if [ -S "$SOCKET_PATH" ] && process_running; then exit 0; fi
+            kill -0 "$child" 2>/dev/null || break
+            sleep 0.1
+        done
+        if process_running; then kill -TERM "$pid" 2>/dev/null || true; fi
+        printf '%s\n' "Service failed to start. See $RUN_DIR/service.log." > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"
+        exit 1
+        ;;
+    stop)
+        if process_running; then
+            kill -TERM "$pid" 2>/dev/null || true
+            for ((attempt=0; attempt<60; attempt++)); do
+                process_running || break
+                sleep 0.1
+            done
+            if process_running; then kill -KILL "$pid" 2>/dev/null || true; fi
+        fi
+        rm -f -- "$PID_FILE" "$SOCKET_PATH"
+        ;;
+    status)
+        if process_running && [ -S "$SOCKET_PATH" ]; then exit 0; fi
+        exit 3
+        ;;
+    *)
+        exit 1
+        ;;
+esac

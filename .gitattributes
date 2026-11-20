@@ -1,0 +1,4 @@
+* text=auto
+package/cmd/* text eol=lf
+*.png binary
+*.PNG binary
